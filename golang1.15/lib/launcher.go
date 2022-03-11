@@ -118,5 +118,10 @@ func main() {
 			log.Printf("<<<'%s'<<<", output)
 		}
 		fmt.Fprintf(out, "%s\n", output)
+
+		// The log sentinel is written here for the intermediary log computation
+		// in the Golang proxy to know when the streams should end.
+		fmt.Fprintln(os.Stdout, "XXX_THE_END_OF_A_WHISK_ACTIVATION_XXX")
+		fmt.Fprintln(os.Stderr, "XXX_THE_END_OF_A_WHISK_ACTIVATION_XXX")
 	}
 }
