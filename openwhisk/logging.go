@@ -43,7 +43,6 @@ func (l *httpLogger) Send(line LogLine) error {
 		return fmt.Errorf("failed to marshal logline: %w", err)
 	}
 
-	fmt.Println("sending ", string(by))
 	req, err := http.NewRequest(http.MethodPost, l.url, bytes.NewBuffer(by))
 	if err != nil {
 		return fmt.Errorf("failed to construct HTTP request: %w", err)

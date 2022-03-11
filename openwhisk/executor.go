@@ -52,8 +52,8 @@ type Executor struct {
 	output *bufio.Reader
 	exited chan bool
 
-	stdout       *bufio.Reader
-	stderr       *bufio.Reader
+	lines        chan LogLine
+	consumeGrp   errgroup.Group
 	remoteLogger RemoteLogger
 
 	logout *os.File
@@ -105,19 +105,22 @@ func NewExecutor(logout *os.File, logerr *os.File, command string, env map[strin
 }
 
 func (proc *Executor) setupRemoteLogging(env map[string]string) error {
+	// A chunky buffer in order to not block execution of the function from dealing with log lines.
+	proc.lines = make(chan LogLine, 128)
+
 	proc.cmd.Stdout = nil
 	stdout, err := proc.cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("failed to get stdout pipe: %w", err)
 	}
-	proc.stdout = bufio.NewReader(stdout)
+	proc.consumeGrp.Go(func() error { return consumeStream("stdout", stdout, proc.lines) })
 
 	proc.cmd.Stderr = nil
 	stderr, err := proc.cmd.StderrPipe()
 	if err != nil {
 		return fmt.Errorf("failed to get stderr pipe: %w", err)
 	}
-	proc.stderr = bufio.NewReader(stderr)
+	proc.consumeGrp.Go(func() error { return consumeStream("stderr", stderr, proc.lines) })
 
 	if env["remote_logging"] == "logtail" {
 		proc.remoteLogger = &httpLogger{
@@ -135,9 +138,28 @@ func (proc *Executor) setupRemoteLogging(env map[string]string) error {
 	return nil
 }
 
+// consumeStream consumes a log stream into the given channel.
+func consumeStream(streamName string, stream io.Reader, ch chan LogLine) error {
+	b := bufio.NewReader(stream)
+	for {
+		out, err := b.ReadBytes('\n')
+		if errors.Is(err, io.EOF) {
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("failed consuming %q: %w", streamName, err)
+		}
+		ch <- LogLine{
+			// TODO: This is the format as expected by Logtail. Maybe move the formatting inside a specialized logger for each service.
+			Time:    time.Now().UTC().Format("2006-01-02 15:04:05.000000000 MST"),
+			Message: strings.TrimSpace(string(out)),
+			Stream:  streamName,
+		}
+	}
+}
+
 // Interact interacts with the underlying process
 func (proc *Executor) Interact(in []byte) ([]byte, error) {
-	if proc.stdout == nil {
+	if proc.lines == nil {
 		// Remote logging is not configured. Just roundtrip and return immediately.
 		return proc.roundtrip(in)
 	}
@@ -148,67 +170,47 @@ func (proc *Executor) Interact(in []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to parse activation metadata: %w", err)
 	}
 
-	// A chunky buffer in order to not block execution of the function from sending off loglines.
-	logsToSend := make(chan LogLine, 128)
-	consumeStream := func(streamName string, stream *bufio.Reader, to io.Writer) error {
-		for {
-			out, err := stream.ReadBytes('\n')
-			if err != nil {
-				if err == io.EOF {
+	var grp errgroup.Group
+	grp.Go(func() error {
+		var sawStdoutSentinel, sawStdErrSentinel bool
+		var lastErr error
+		for line := range proc.lines {
+			if line.Message == "XXX_THE_END_OF_A_WHISK_ACTIVATION_XXX" {
+				if line.Stream == "stdout" {
+					sawStdoutSentinel = true
+				} else {
+					sawStdErrSentinel = true
+				}
+				if sawStdoutSentinel && sawStdErrSentinel {
+					// We've seen both sentinels. Stop consuming until the next request.
 					return nil
 				}
-				return fmt.Errorf("failed to read from stream %q: %w", streamName, err)
+				continue
 			}
 
-			line := string(out)
-			if line == OutputGuard {
-				// Swallow the sentinel. It's written explicitly again below.
-				return nil
-			}
-
-			logsToSend <- LogLine{
-				// TODO: This is the format as expected by Logtail. Maybe move the formatting inside a specialized logger for each service.
-				Time:         time.Now().UTC().Format("2006-01-02 15:04:05.000000000 MST"),
-				Message:      strings.TrimSpace(line),
-				Stream:       streamName,
-				ActivationId: metadata.ActivationId,
-				ActionName:   metadata.ActionName,
+			line.ActivationId = metadata.ActivationId
+			line.ActionName = metadata.ActionName
+			if err := proc.remoteLogger.Send(line); err != nil {
+				// We want to continue consuming all of the logs so we don't exit immediately
+				// but surface the error eventually.
+				lastErr = fmt.Errorf("failed to send log to remote location: %w", err)
 			}
 		}
-	}
-
-	var grpConsuming errgroup.Group
-	grpConsuming.Go(func() error { return consumeStream("stdout", proc.stdout, proc.logout) })
-	grpConsuming.Go(func() error { return consumeStream("stderr", proc.stderr, proc.logerr) })
-
-	var grpSending errgroup.Group
-	grpSending.Go(func() error {
-		for log := range logsToSend {
-			if err := proc.remoteLogger.Send(log); err != nil {
-				return fmt.Errorf("failed to send log to remote location: %w", err)
-			}
-		}
-		return nil
+		return lastErr
 	})
 
 	proc.logout.WriteString("Logs will be written to the specified remote location. Only errors in doing so will be surfaced here.\n")
 	out, err := proc.roundtrip(in)
 
 	// Wait for the streams to process completely.
-	if grpErr := grpConsuming.Wait(); grpErr != nil {
-		fmt.Fprintf(proc.logerr, "Failed to read logs from streams: %v\n", err)
+	if grpErr := grp.Wait(); grpErr != nil {
+		fmt.Fprintf(proc.logerr, "Failed to process logs: %v\n", err)
 		err = grpErr
 	}
 
-	// After the consumers are done (have seen the sentinel), we know it's safe to close the channel.
-	close(logsToSend)
-	if grpErr := grpSending.Wait(); grpErr != nil {
-		fmt.Fprintf(proc.logerr, "Failed to write logs to remote location: %v\n", err)
-		err = grpErr
-	}
-
-	if err := proc.remoteLogger.Flush(); err != nil {
+	if flushErr := proc.remoteLogger.Flush(); flushErr != nil {
 		fmt.Fprintf(proc.logerr, "Failed to flush logs to remote location: %v\n", err)
+		err = flushErr
 	}
 
 	// Write our own sentinels instead of forwarding from the child. This makes sure that any
@@ -332,6 +334,7 @@ func (proc *Executor) Stop() {
 	Debug("stopping")
 	if proc.cmd != nil {
 		proc.cmd.Process.Kill()
+		proc.consumeGrp.Wait()
 		proc.cmd = nil
 	}
 }
