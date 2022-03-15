@@ -74,6 +74,7 @@ func NewActionProxy(baseDir string, compiler string, outFile *os.File, errFile *
 func (ap *ActionProxy) SetEnv(env map[string]interface{}) {
 	// Propagate some basic runtime environment
 	ap.env["HOME"] = os.Getenv("HOME")
+	ap.env["PATH"] = os.Getenv("PATH")
 
 	// Propagate proxy version
 	ap.env["__OW_PROXY_VERSION"] = Version
