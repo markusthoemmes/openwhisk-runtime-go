@@ -27,7 +27,14 @@ import (
 	"log"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
+	"time"
+
+	// TODO: We likely need this to be in a separate file only pulled in if compile finds this dependency
+	// in the user's go.mod.
+	// Maybe create a context.go with a `SetupContext` function that can either be using this or the "normal" setup.
+	"github.com/aws/aws-lambda-go/lambdacontext"
 )
 
 // OwExecutionEnv is the execution environment set at compile time
@@ -105,8 +112,26 @@ func main() {
 			}
 		}
 
+		// Put the deadline into the context.
+		deadline, err := strconv.Atoi(os.Getenv("__OW_DEADLINE"))
+		if err != nil {
+			log.Println(err.Error())
+			fmt.Fprintf(out, "{ error: %q}\n", err.Error())
+			continue
+		}
+		ctx, cancel := context.WithDeadline(context.Background(), time.UnixMilli(int64(deadline)))
+
+		// Compatibility with lambdacontext.
+		lambdacontext.FunctionName = os.Getenv("__OW_ACTION_NAME")
+		lambdacontext.FunctionVersion = os.Getenv("__OW_ACTION_VERSION")
+		lambdactx := &lambdacontext.LambdaContext{
+			AwsRequestID: os.Getenv("__OW_ACTIVATION_ID"),
+		}
+		ctx = lambdacontext.NewContext(ctx, lambdactx)
+
 		// process the request
-		output, err := invoke(Main, input["value"])
+		output, err := invoke(Main, ctx, input["value"])
+		cancel()
 		if err != nil {
 			log.Println(err.Error())
 			fmt.Fprintf(out, "{ error: %q}\n", err.Error())
@@ -154,10 +179,10 @@ func validate(f interface{}) error {
 //
 // All permutations of the signatures defined in buildArguments and handleReturnValues
 // are supported.
-func invoke(f interface{}, in []byte) ([]byte, error) {
+func invoke(f interface{}, ctx context.Context, in []byte) ([]byte, error) {
 	fun := reflect.ValueOf(f)
 
-	arguments, err := buildArguments(fun, in)
+	arguments, err := buildArguments(fun, ctx, in)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +196,7 @@ func invoke(f interface{}, in []byte) ([]byte, error) {
 // - (context.Context)
 // - (Tin)
 // - (context.Context, Tin)
-func buildArguments(f reflect.Value, in []byte) ([]reflect.Value, error) {
+func buildArguments(f reflect.Value, ctx context.Context, in []byte) ([]reflect.Value, error) {
 	typ := f.Type()
 	numArgs := typ.NumIn()
 
@@ -186,14 +211,12 @@ func buildArguments(f reflect.Value, in []byte) ([]reflect.Value, error) {
 		if err := json.Unmarshal(in, val); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal input value: %w", err)
 		}
-		// TODO: Do something useful with the context.
-		return []reflect.Value{reflect.ValueOf(context.Background()), reflect.ValueOf(val).Elem()}, nil
+		return []reflect.Value{reflect.ValueOf(ctx), reflect.ValueOf(val).Elem()}, nil
 	}
 
 	// If there's only 1 argument, we need to figure out if it's only a context or only a value.
 	if typ.In(0).Implements(contextInterface) {
-		// TODO: Do something useful with the context.
-		return []reflect.Value{reflect.ValueOf(context.Background())}, nil
+		return []reflect.Value{reflect.ValueOf(ctx)}, nil
 	}
 
 	val := reflect.New(typ.In(0)).Interface()
