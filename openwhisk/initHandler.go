@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 type initBodyRequest struct {
@@ -115,6 +116,7 @@ func (ap *ActionProxy) initHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// if a compiler is defined try to compile
+	compileStart := time.Now()
 	_, err = ap.ExtractAndCompile(&buf, main)
 	if err != nil {
 		if os.Getenv("OW_LOG_INIT_ERROR") == "" {
@@ -127,8 +129,10 @@ func (ap *ActionProxy) initHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	fmt.Println("Compile took", time.Since(compileStart))
 
 	// start an action
+	startTime := time.Now()
 	err = ap.StartLatestAction()
 	if err != nil {
 		if os.Getenv("OW_LOG_INIT_ERROR") == "" {
@@ -141,6 +145,7 @@ func (ap *ActionProxy) initHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	fmt.Println("Start took", time.Since(startTime))
 	ap.initialized = true
 	sendOK(w)
 }
