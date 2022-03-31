@@ -154,6 +154,7 @@ func (ap *ActionProxy) initHandler(w http.ResponseWriter, r *http.Request) {
 func (ap *ActionProxy) ExtractAndCompile(buf *[]byte, main string) (string, error) {
 
 	// extract action in src folder
+	extractStart := time.Now()
 	file, err := ap.ExtractAction(buf, "src")
 	if err != nil {
 		return "", err
@@ -161,6 +162,7 @@ func (ap *ActionProxy) ExtractAndCompile(buf *[]byte, main string) (string, erro
 	if file == "" {
 		return "", fmt.Errorf("empty filename")
 	}
+	fmt.Println("Extracting took", time.Since(extractStart))
 
 	// some path surgery
 	dir := filepath.Dir(file)
@@ -175,6 +177,7 @@ func (ap *ActionProxy) ExtractAndCompile(buf *[]byte, main string) (string, erro
 		return binFile, nil
 	}
 
+	compileStart := time.Now()
 	// ok let's try to compile
 	Debug("compiling: %s main: %s", file, main)
 	os.Mkdir(binDir, 0755)
@@ -187,5 +190,6 @@ func (ap *ActionProxy) ExtractAndCompile(buf *[]byte, main string) (string, erro
 	if _, err := os.Stat(binFile); os.IsNotExist(err) {
 		return "", fmt.Errorf("cannot compile")
 	}
+	fmt.Println("Actual compiling took", time.Since(compileStart))
 	return binFile, nil
 }
