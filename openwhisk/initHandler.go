@@ -89,12 +89,10 @@ func (ap *ActionProxy) initHandler(w http.ResponseWriter, r *http.Request) {
 		main = "main"
 	}
 
+	ap.currentDir++
 	dir := fmt.Sprintf("%s/%d/%s", ap.baseDir, ap.currentDir, "src")
 	os.MkdirAll(dir, 0755)
 
-	// TODO: Is this necessary? Maybe we should just get rid of the numbering and precreate the action folder.
-	ap.currentDir++
-	ap.currentDir++
 	if !request.Value.Binary {
 		// We know that this is plain Node.js code. Just put it into a file and we're done.
 		var code bytes.Buffer
