@@ -18,15 +18,24 @@
 package openwhisk
 
 import (
-	"encoding/base64"
+	"bytes"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"text/template"
 )
+
+//go:embed templates/justcode.tmpl
+var justCodeTpl string
+var justCode = template.Must(template.New("justcode").Parse(justCodeTpl))
+
+//go:embed templates/launcher.tmpl
+var launcherTpl string
+var launcher = template.Must(template.New("launcher").Parse(launcherTpl))
 
 type initBodyRequest struct {
 	Code   string                 `json:"code,omitempty"`
@@ -51,36 +60,16 @@ func sendOK(w http.ResponseWriter) {
 }
 
 func (ap *ActionProxy) initHandler(w http.ResponseWriter, r *http.Request) {
-
-	// you can do multiple initializations when debugging
-	if ap.initialized && !Debugging {
-		msg := "Cannot initialize the action more than once."
-		sendError(w, http.StatusForbidden, msg)
-		log.Println(msg)
-		return
-	}
-
-	// read body of the request
-	if ap.compiler != "" {
-		Debug("compiler: " + ap.compiler)
-	}
-
 	body, err := ioutil.ReadAll(r.Body)
-	defer r.Body.Close()
 	if err != nil {
-		sendError(w, http.StatusBadRequest, fmt.Sprintf("%v", err))
+		sendError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	defer r.Body.Close()
 
 	// decode request parameters
-	if len(body) < 1000 {
-		Debug("init: decoding %s\n", string(body))
-	}
-
 	var request initRequest
-	err = json.Unmarshal(body, &request)
-
-	if err != nil {
+	if err := json.Unmarshal(body, &request); err != nil {
 		sendError(w, http.StatusBadRequest, fmt.Sprintf("Error unmarshaling request: %v", err))
 		return
 	}
@@ -100,32 +89,39 @@ func (ap *ActionProxy) initHandler(w http.ResponseWriter, r *http.Request) {
 		main = "main"
 	}
 
-	// extract code eventually decoding it
-	var buf []byte
-	if request.Value.Binary {
-		Debug("it is binary code")
-		buf, err = base64.StdEncoding.DecodeString(request.Value.Code)
-		if err != nil {
-			sendError(w, http.StatusBadRequest, "cannot decode the request: "+err.Error())
+	dir := fmt.Sprintf("%s/%d/%s", ap.baseDir, ap.currentDir, "src")
+	os.MkdirAll(dir, 0755)
+
+	// TODO: Is this necessary? Maybe we should just get rid of the numbering and precreate the action folder.
+	ap.currentDir++
+	ap.currentDir++
+	if !request.Value.Binary {
+		// We know that this is plain Node.js code. Just put it into a file and we're done.
+		var code bytes.Buffer
+		if err := justCode.Execute(&code, map[string]string{
+			"Code": request.Value.Code,
+			"Main": main,
+		}); err != nil {
+			sendError(w, http.StatusBadRequest, "cannot execute template code: "+err.Error())
 			return
 		}
-	} else {
-		Debug("it is source code")
-		buf = []byte(request.Value.Code)
-	}
 
-	// if a compiler is defined try to compile
-	_, err = ap.ExtractAndCompile(&buf, main)
-	if err != nil {
-		if os.Getenv("OW_LOG_INIT_ERROR") == "" {
-			sendError(w, http.StatusBadGateway, err.Error())
-		} else {
-			ap.errFile.Write([]byte(err.Error() + "\n"))
-			ap.outFile.Write([]byte(OutputGuard))
-			ap.errFile.Write([]byte(OutputGuard))
-			sendError(w, http.StatusBadGateway, "The action failed to generate or locate a binary. See logs for details.")
+		var launch bytes.Buffer
+		if err := launcher.Execute(&launch, map[string]string{
+			"Code": code.String(),
+		}); err != nil {
+			sendError(w, http.StatusBadRequest, "cannot execute template launcher: "+err.Error())
+			return
 		}
-		return
+
+		if err := os.WriteFile(fmt.Sprintf("%s/%s.js", dir, "exec"), launch.Bytes(), 0755); err != nil {
+
+		}
+	} else {
+		// TODO
+		// Unzip (check for index.js or package.json while doing so)
+		// Execute launcher with the correct require
+		panic("Not implemented!!")
 	}
 
 	// start an action

@@ -1,0 +1,10 @@
+module.exports.{{ .Main }} = (function(){
+  {{ .Code }}
+  try {
+    return {{ .Main }}
+  } catch (e) {
+    if (e.name === 'ReferenceError') {
+      return module.exports.{{ .Main }} || exports.{{ .Main }}
+    } else throw e
+  }
+})()
