@@ -157,14 +157,6 @@ func (ap *ActionProxy) StartLatestAction() error {
 		}
 		return nil
 	}
-
-	// cannot start, removing the action
-	// and leaving the current executor running
-	if !Debugging {
-		exeDir := fmt.Sprintf("./action/%d/", highestDir)
-		Debug("removing the failed action in %s", exeDir)
-		os.RemoveAll(exeDir)
-	}
 	return err
 }
 
