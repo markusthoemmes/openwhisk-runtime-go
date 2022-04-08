@@ -112,7 +112,7 @@ func (ap *ActionProxy) initHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := os.WriteFile(fmt.Sprintf("%s/%s.js", dir, "exec"), launch.Bytes(), 0755); err != nil {
+		if err := os.WriteFile(fmt.Sprintf("%s/exec", dir), launch.Bytes(), 0755); err != nil {
 
 		}
 	} else {
