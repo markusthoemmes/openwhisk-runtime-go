@@ -90,7 +90,7 @@ func (ap *ActionProxy) initHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ap.currentDir++
-	dir := fmt.Sprintf("%s/%d/%s", ap.baseDir, ap.currentDir, "src")
+	dir := fmt.Sprintf("%s/%d/%s", ap.baseDir, ap.currentDir, "bin")
 	os.MkdirAll(dir, 0755)
 
 	if !request.Value.Binary {
