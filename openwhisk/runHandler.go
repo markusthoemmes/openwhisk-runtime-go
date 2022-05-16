@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"time"
 )
 
 // ErrResponse is the response when there are errors
@@ -44,6 +45,8 @@ func sendError(w http.ResponseWriter, code int, cause string) {
 }
 
 func (ap *ActionProxy) runHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Println(time.Now(), "received /run")
+	defer fmt.Println(time.Now(), "done /run")
 
 	// parse the request
 	body, err := ioutil.ReadAll(r.Body)
@@ -53,6 +56,7 @@ func (ap *ActionProxy) runHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	Debug("done reading %d bytes", len(body))
+	fmt.Println(time.Now(), "done reading /run")
 
 	// check if you have an action
 	if ap.theExecutor == nil {
@@ -69,7 +73,9 @@ func (ap *ActionProxy) runHandler(w http.ResponseWriter, r *http.Request) {
 	body = bytes.Replace(body, []byte("\n"), []byte(""), -1)
 
 	// execute the action
+	fmt.Println(time.Now(), "start Interact")
 	response, err := ap.theExecutor.Interact(body)
+	fmt.Println(time.Now(), "done Interact")
 
 	// check for early termination
 	if err != nil {
