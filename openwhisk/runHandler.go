@@ -45,8 +45,10 @@ func sendError(w http.ResponseWriter, code int, cause string) {
 }
 
 func (ap *ActionProxy) runHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Println(time.Now(), "received /run")
-	defer fmt.Println(time.Now(), "done /run")
+	start := time.Now()
+	defer func() {
+		fmt.Println("/run took", time.Since(start))
+	}()
 
 	// parse the request
 	body, err := ioutil.ReadAll(r.Body)
@@ -73,9 +75,7 @@ func (ap *ActionProxy) runHandler(w http.ResponseWriter, r *http.Request) {
 	body = bytes.Replace(body, []byte("\n"), []byte(""), -1)
 
 	// execute the action
-	fmt.Println(time.Now(), "start Interact")
 	response, err := ap.theExecutor.Interact(body)
-	fmt.Println(time.Now(), "done Interact")
 
 	// check for early termination
 	if err != nil {
