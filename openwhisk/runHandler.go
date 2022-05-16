@@ -82,6 +82,8 @@ func (ap *ActionProxy) runHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	DebugLimit("received:", response, 120)
 
+	response = []byte(fmt.Sprintf(`{"elapsed":%d}`, time.Since(start)/time.Millisecond))
+
 	// check if the answer is an object map
 	var objmap map[string]*json.RawMessage
 	err = json.Unmarshal(response, &objmap)
@@ -108,5 +110,4 @@ func (ap *ActionProxy) runHandler(w http.ResponseWriter, r *http.Request) {
 		sendError(w, http.StatusInternalServerError, fmt.Sprintf("Only wrote %d of %d bytes to response", numBytesWritten, len(response)))
 		return
 	}
-	fmt.Println("/run took", time.Since(start))
 }
