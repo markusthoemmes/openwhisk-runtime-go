@@ -46,9 +46,6 @@ func sendError(w http.ResponseWriter, code int, cause string) {
 
 func (ap *ActionProxy) runHandler(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
-	defer func() {
-		fmt.Println("/run took", time.Since(start))
-	}()
 
 	// parse the request
 	body, err := ioutil.ReadAll(r.Body)
@@ -58,7 +55,6 @@ func (ap *ActionProxy) runHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	Debug("done reading %d bytes", len(body))
-	fmt.Println(time.Now(), "done reading /run")
 
 	// check if you have an action
 	if ap.theExecutor == nil {
@@ -112,4 +108,5 @@ func (ap *ActionProxy) runHandler(w http.ResponseWriter, r *http.Request) {
 		sendError(w, http.StatusInternalServerError, fmt.Sprintf("Only wrote %d of %d bytes to response", numBytesWritten, len(response)))
 		return
 	}
+	fmt.Println("/run took", time.Since(start))
 }
