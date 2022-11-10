@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"time"
 )
 
 // ErrResponse is the response when there are errors
@@ -44,6 +45,7 @@ func sendError(w http.ResponseWriter, code int, cause string) {
 }
 
 func (ap *ActionProxy) runHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 
 	// parse the request
 	body, err := ioutil.ReadAll(r.Body)
@@ -53,6 +55,7 @@ func (ap *ActionProxy) runHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	Debug("done reading %d bytes", len(body))
+	fmt.Println("body read", time.Since(start))
 
 	// check if you have an action
 	if ap.theExecutor == nil {
@@ -67,9 +70,11 @@ func (ap *ActionProxy) runHandler(w http.ResponseWriter, r *http.Request) {
 
 	// remove newlines
 	body = bytes.Replace(body, []byte("\n"), []byte(""), -1)
+	fmt.Println("removed newlines", time.Since(start))
 
 	// execute the action
 	response, err := ap.theExecutor.Interact(body)
+	fmt.Println("interact done", time.Since(start))
 
 	// check for early termination
 	if err != nil {
@@ -87,14 +92,17 @@ func (ap *ActionProxy) runHandler(w http.ResponseWriter, r *http.Request) {
 		sendError(w, http.StatusBadGateway, "The action did not return a dictionary.")
 		return
 	}
+	fmt.Println("json check done", time.Since(start))
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(response)))
 	numBytesWritten, err := w.Write(response)
+	fmt.Println("write done", time.Since(start))
 
 	// flush output
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
+		fmt.Println("flush done", time.Since(start))
 	}
 
 	// diagnostic when you have writing problems

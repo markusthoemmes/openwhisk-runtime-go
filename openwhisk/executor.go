@@ -222,8 +222,11 @@ func (proc *Executor) Interact(in []byte) ([]byte, error) {
 
 // roundtrip writes the input to the subprocess and waits for a response.
 func (proc *Executor) roundtrip(in []byte) ([]byte, error) {
+	start := time.Now()
+
 	proc.input.Write(in)
 	proc.input.Write([]byte("\n"))
+	fmt.Println("input written", time.Since(start))
 
 	chout := make(chan []byte)
 	go func() {
@@ -238,6 +241,7 @@ func (proc *Executor) roundtrip(in []byte) ([]byte, error) {
 	var out []byte
 	select {
 	case out = <-chout:
+		fmt.Println("output read", time.Since(start))
 		if len(out) == 0 {
 			err = errors.New("no answer from the action")
 		}
