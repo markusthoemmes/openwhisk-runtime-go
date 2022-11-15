@@ -37,10 +37,15 @@ func sendError(w http.ResponseWriter, code int, cause string) {
 		b = []byte("error marshalling error response")
 		Debug(err.Error())
 	}
+
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(b)+1))
 	w.WriteHeader(code)
 	w.Write(b)
 	w.Write([]byte("\n"))
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 func (ap *ActionProxy) runHandler(w http.ResponseWriter, r *http.Request) {
