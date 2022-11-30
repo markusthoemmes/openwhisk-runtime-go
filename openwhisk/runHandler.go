@@ -69,7 +69,7 @@ func (ap *ActionProxy) runHandler(w http.ResponseWriter, r *http.Request) {
 	body = bytes.Replace(body, []byte("\n"), []byte(""), -1)
 
 	// execute the action
-	response, err := ap.theExecutor.Interact(body)
+	response, err := ap.theExecutor.Interact(body, false)
 
 	// check for early termination
 	if err != nil {

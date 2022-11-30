@@ -142,13 +142,16 @@ func consumeStream(streamName string, stream io.Reader, ch chan logging.LogLine)
 }
 
 // Interact interacts with the underlying process
-func (proc *Executor) Interact(in []byte) ([]byte, error) {
-	defer func() {
-		// Write our own sentinels instead of forwarding from the child. This makes sure that any
-		// error logs we might've written are captured correctly.
-		proc.logout.WriteString(OutputGuard)
-		proc.logerr.WriteString(OutputGuard)
-	}()
+func (proc *Executor) Interact(in []byte, isInit bool) ([]byte, error) {
+	if !isInit {
+		// Don't write a sentinel on init.
+		defer func() {
+			// Write our own sentinels instead of forwarding from the child. This makes sure that any
+			// error logs we might've written are captured correctly.
+			proc.logout.WriteString(OutputGuard)
+			proc.logerr.WriteString(OutputGuard)
+		}()
+	}
 
 	// Fetch metadata from the incoming parameters
 	var metadata activationMetadata

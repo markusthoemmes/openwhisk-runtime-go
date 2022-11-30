@@ -176,7 +176,7 @@ func (ap *ActionProxy) actionloopBasedInit(rawRequest []byte, parsedRequest init
 		ap.theExecutor.loggers = loggers
 	}
 
-	out, err := ap.theExecutor.Interact(rawRequest)
+	out, err := ap.theExecutor.Interact(rawRequest, true)
 	if err != nil {
 		if os.Getenv("OW_LOG_INIT_ERROR") == "" {
 			return fmt.Errorf("cannot initialize action: %w", err)

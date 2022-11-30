@@ -61,7 +61,7 @@ func ExampleNewExecutor_bc() {
 	proc := NewExecutor(log, log, "_test/bc.sh", m)
 	err := proc.Start(false)
 	fmt.Println(err)
-	res, _ := proc.Interact([]byte("2+2"))
+	res, _ := proc.Interact([]byte("2+2"), false)
 	fmt.Printf("%s", res)
 	proc.Stop()
 	dump(log)
