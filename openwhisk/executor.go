@@ -156,40 +156,48 @@ func (proc *Executor) Interact(in []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to parse activation metadata: %w", err)
 	}
 
-	var grp errgroup.Group
-	grp.Go(func() error {
+	abortLogs := make(chan struct{})
+	errorChan := make(chan error)
+	go func() {
+		defer close(errorChan)
+
 		var sawStdoutSentinel, sawStdErrSentinel bool
 		var errors error
-		for line := range proc.lines {
-			// TODO: Deal with this not happening!
-			if line.Message == logSentinel {
-				if line.Stream == "stdout" {
-					sawStdoutSentinel = true
-				} else {
-					sawStdErrSentinel = true
+		for {
+			select {
+			case line := <-proc.lines:
+				if line.Message == logSentinel {
+					if line.Stream == "stdout" {
+						sawStdoutSentinel = true
+					} else {
+						sawStdErrSentinel = true
+					}
+					if sawStdoutSentinel && sawStdErrSentinel {
+						// We've seen both sentinels. Stop consuming until the next request.
+						errorChan <- errors
+						return
+					}
+					continue
 				}
-				if sawStdoutSentinel && sawStdErrSentinel {
-					// We've seen both sentinels. Stop consuming until the next request.
-					return errors
-				}
-				continue
-			}
 
-			line.ActivationId = metadata.ActivationId
+				line.ActivationId = metadata.ActivationId
 
-			// TODO: We probably want to do this in parallel. Opting for a simple implementation
-			// first to close the loop. We might also want to check how common multiple loggers
-			// are to justify the added complexity.
-			for _, logger := range proc.loggers {
-				if err := logger.Send(line); err != nil {
-					// We want to continue consuming all of the logs so we don't exit immediately
-					// but surface the error eventually.
-					errors = multierror.Append(errors, err)
+				// TODO: We probably want to do this in parallel. Opting for a simple implementation
+				// first to close the loop. We might also want to check how common multiple loggers
+				// are to justify the added complexity.
+				for _, logger := range proc.loggers {
+					if err := logger.Send(line); err != nil {
+						// We want to continue consuming all of the logs so we don't exit immediately
+						// but surface the error eventually.
+						errors = multierror.Append(errors, err)
+					}
 				}
+			case <-abortLogs:
+				errorChan <- errors
+				return
 			}
 		}
-		return errors
-	})
+	}()
 
 	if proc.isRemoteLogging {
 		// Write a logging notice into the default streams if the configured logger is not a
@@ -200,9 +208,20 @@ func (proc *Executor) Interact(in []byte) ([]byte, error) {
 
 	out, err := proc.roundtrip(in)
 
+	var logsErr error
+	select {
+	// TODO: How to deal with remote locations? We have no clue how long this'll take then...
+	// Separate goroutine maybe?
+	case <-time.After(500 * time.Millisecond):
+		close(abortLogs)
+		logsErr = <-errorChan
+	case err := <-errorChan:
+		logsErr = err
+	}
+
 	// Wait for the streams to process completely.
-	if err := grp.Wait(); err != nil {
-		fmt.Fprintf(proc.logerr, "Failed to process logs: %s\n", strings.TrimSpace(err.Error()))
+	if logsErr != nil {
+		fmt.Fprintf(proc.logerr, "Failed to process logs: %s\n", strings.TrimSpace(logsErr.Error()))
 	}
 
 	// Flush any potential leftovers.
