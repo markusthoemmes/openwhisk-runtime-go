@@ -27,6 +27,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"github.com/apache/openwhisk-runtime-go/openwhisk/logging"
 )
 
 type initBodyRequest struct {
@@ -91,16 +93,14 @@ func (ap *ActionProxy) initHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: LOG_DESTINATIONS is currently not supported in pre-launch mode because of thew way we're
-	// intercepting the streams (or the timing of such rather). Keeping that for a later refactor.
-	if os.Getenv("OW_INIT_IN_ACTIONLOOP") == "" || request.Value.Env["LOG_DESTINATIONS"] != nil {
+	if os.Getenv("OW_INIT_IN_ACTIONLOOP") == "" {
 		if ap.theExecutor != nil {
 			// Stop the prelaunched binary since we're going to start a fresh one.
 			ap.theExecutor.Stop()
 		}
 		err = ap.scriptBasedInit(request)
 	} else {
-		err = ap.actionloopBasedInit(body)
+		err = ap.actionloopBasedInit(body, request)
 	}
 
 	if err != nil {
@@ -161,8 +161,22 @@ func (ap *ActionProxy) scriptBasedInit(request initRequest) error {
 	return nil
 }
 
-func (ap *ActionProxy) actionloopBasedInit(request []byte) error {
-	out, err := ap.theExecutor.Interact(request)
+func (ap *ActionProxy) actionloopBasedInit(rawRequest []byte, parsedRequest initRequest) error {
+	// Populate the environment to the action proxy's internal environment. This does not propagate
+	// the environment to the process but processes them in the same way.
+	ap.SetEnv(parsedRequest.Value.Env)
+	loggers, err := logging.RemoteLoggerFromEnv(ap.env)
+	if err != nil {
+		return fmt.Errorf("failed to setup loggers: %w", err)
+	}
+
+	// If the init payload had configuration for new loggers, override the default ones now.
+	if len(loggers) > 0 {
+		ap.theExecutor.isRemoteLogging = true
+		ap.theExecutor.loggers = loggers
+	}
+
+	out, err := ap.theExecutor.Interact(rawRequest)
 	if err != nil {
 		if os.Getenv("OW_LOG_INIT_ERROR") == "" {
 			return fmt.Errorf("cannot initialize action: %w", err)

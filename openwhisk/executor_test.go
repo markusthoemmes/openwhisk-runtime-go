@@ -153,7 +153,8 @@ func TestExecutorRemoteLogging(t *testing.T) {
 	lines2 := make(chan logging.LogLine, 2)
 	stdout, stderr := testStdoutStderr(t)
 	proc := NewExecutor(stdout, stderr, "_test/remotelogging.sh", nil)
-	proc.remoteLoggers = []logging.RemoteLogger{
+	proc.isRemoteLogging = true
+	proc.loggers = []logging.RemoteLogger{
 		testLogger(func(l logging.LogLine) error {
 			l.Time = time.Time{} // Nullify to support comparison below.
 			lines <- l
@@ -165,7 +166,6 @@ func TestExecutorRemoteLogging(t *testing.T) {
 			return nil
 		}),
 	}
-	assert.NoError(t, proc.setupRemoteLogging())
 	assert.NoError(t, proc.Start(true), "failed to launch process")
 
 	_, err := proc.Interact([]byte(`{"value":{"name":"Markus"}, "activation_id": "testid", "action_name": "testaction"}`))
@@ -204,12 +204,12 @@ func TestExecutorRemoteLogging(t *testing.T) {
 func TestExecutorRemoteLoggingError(t *testing.T) {
 	stdout, stderr := testStdoutStderr(t)
 	proc := NewExecutor(stdout, stderr, "_test/remotelogging.sh", nil)
-	proc.remoteLoggers = []logging.RemoteLogger{
+	proc.isRemoteLogging = true
+	proc.loggers = []logging.RemoteLogger{
 		testLogger(func(l logging.LogLine) error {
 			return errors.New("an error")
 		}),
 	}
-	assert.NoError(t, proc.setupRemoteLogging())
 	assert.NoError(t, proc.Start(true), "failed to launch process")
 
 	_, err := proc.Interact([]byte(`{"value":{"name":"Markus"}}`))
