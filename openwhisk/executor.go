@@ -217,7 +217,8 @@ func (proc *Executor) Interact(in []byte, isInit bool) ([]byte, error) {
 		errorChan <- errors
 	}()
 
-	if proc.isRemoteLogging {
+	// Only write the remote logging notice if we're not initializing.
+	if !isInit && proc.isRemoteLogging {
 		// Write a logging notice into the default streams if the configured logger is not a
 		// remote logger.
 		proc.logout.WriteString(remoteLogNotice)
@@ -225,6 +226,21 @@ func (proc *Executor) Interact(in []byte, isInit bool) ([]byte, error) {
 	}
 
 	out, err := proc.roundtrip(in)
+
+	if isInit {
+		now := time.Now()
+		// Fake the presence of sentinels on init as we're currently not writing sentinels then.
+		proc.lines <- logging.LogLine{
+			Message: logSentinel,
+			Stream:  "stdout",
+			Time:    now,
+		}
+		proc.lines <- logging.LogLine{
+			Message: logSentinel,
+			Stream:  "stderr",
+			Time:    now,
+		}
+	}
 
 	// Wait for the sentinels to appear and potentially abort log collection if they don't.
 	select {
